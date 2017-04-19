@@ -1,6 +1,6 @@
+#include <climits>
 #include <fstream>
 #include <iostream>
-#include <stdio.h>
 #include <string>
 #include <vector>
 
@@ -41,13 +41,15 @@ struct GRAPHLET_COUNTS {
     unsigned long long g33;
     unsigned long long g34;
 
-    // 4-node graphlet counts
+    // 4-node connected graphlet counts
     unsigned long long g41;
     unsigned long long g42;
     unsigned long long g43;
     unsigned long long g44;
     unsigned long long g45;
     unsigned long long g46;
+
+    // 4-node disconnected graphlet counts
     unsigned long long g47;
     unsigned long long g48;
     unsigned long long g49;
@@ -61,94 +63,101 @@ __global__
 void graphlets(int* V, unsigned long long V_num, int* E, unsigned long long E_num, int* E_u, int* E_v, EDGE_OUTPUT* outputs)
 {
 	// Calculate global thread index in 1D grid of 1D blocks
-    // Used as the edge number to compute
+    // Used as the undirected edge number to compute
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Return immediately if thread index is greater than maximum edge index
     if (i >= E_num) return;
 
+    // Using thread number, look up directed edge number in array of undirected edges
     int ei = E[i];
 
     // Lookup the endpoints of the current edge
     int u = E_u[ei];
     int v = E_v[ei];
 
-    int u_len = V[u + 1] - V[u] - 1;
-    int** ptrs = new int*[u_len];
-    int* lens = new int[u_len];
-    int* inds = new int[u_len];
+    // To find 4-node graphlets, the neighbors of u check to see if they have
+    // the same neighbors (or not) as v; arr_len is 1 less because v is omitted
+    int arr_len = V[u + 1] - V[u] - 1;
+    // Array holding current index of edges in E_v of each of u's neighbors
+    int* inds = new int[arr_len];
+    // Array holding maximum index of edges in E_v of each of u's neighbors
+    int* ends = new int[arr_len];
 
-    int prev_w = -1;
-    for (int edge_i = V[u], arr_i = 0; edge_i < V[u + 1]; ++edge_i && ++arr_i) {
+    // Iterate through u's neighbors and build array of indices in edge list
+    int arr_i = 0, prev_w = -1;
+    for (int edge_i = V[u]; edge_i < V[u + 1]; edge_i++) {
+        // w is the current neighbor of u being considered
         int w = E_v[edge_i];
-        
-        if (w == v) {
-            arr_i--;
-            continue;
-        }
 
-        ptrs[arr_i] = &E_v[V[w]];
-        lens[arr_i] = V[w + 1] - V[w];
-        inds[arr_i] = 0;
+        if (w == v) continue;
 
-        while (inds[arr_i] < lens[arr_i] && ptrs[arr_i][inds[arr_i]] <= prev_w) {
+        inds[arr_i] = V[w];
+        ends[arr_i] = V[w + 1];
+
+        // This is a bit subtle; when searching for cliques and cycles in the original
+        // paper, X(w) is set to 0 after searching a given w's neighbors for cliques
+        // and cycles. This prevents double-counting by stopping w from finding a clique
+        // or cycle in another neighbor r of u, and then r finding the same clique or
+        // cycle with w. By restricting u's neighbors to only considering edges with nodes
+        // greater than the previous neighbor, it recreates this effect and only considers
+        // neighbor-pairs once.
+        while (inds[arr_i] < ends[arr_i] && E_v[inds[arr_i]] <= prev_w) {
             inds[arr_i]++;
         }
 
+        arr_i++;
         prev_w = w;
     }
 
+    // The primitive counts used to calculate graphlet numbers
     int tri_e = 0, star_u = 0, star_v = 0, cliq_e = 0, cyc_e = 0;
+    // The current index in E_v of u and v, respectively
     int iu = V[u], iv = V[v];
+    // To count graphlets, nodes are advanced in ascending order concurrently across u, v,
+    // and all of u's neighbors. Through this walk, counts can be gathered by checking
+    // which nodes have identical neighbors after each step
     while (iu < V[u + 1] || iv < V[v + 1]) {
-        if (iv < V[v + 1]) {
-            for (int i = 0; i < u_len; i++) {
-                while (inds[i] < lens[i] && ptrs[i][inds[i]] < E_v[iv]) {
-                    inds[i]++;
-                }
-            }
-        }
+        int cu = iu < V[u + 1] ? E_v[iu] : INT_MAX;
+        int cv = iv < V[v + 1] ? E_v[iv] : INT_MAX;
 
-        int *count_ptr = NULL;
-        if (iu < V[u + 1] && (iv == V[v + 1] || E_v[iu] < E_v[iv])) {
-            if (E_v[iu] == v) {
-                iu++;
-                continue;
-            }
-
-            star_u++;
-            count_ptr = NULL;
-        } else if (iu == V[u + 1] || E_v[iv] < E_v[iu]) {
-            if (E_v[iv] == u) {
-                iv++;
-                continue;
-            }
-
-            star_v++;
-            count_ptr = &cyc_e;
+        if (cu < cv) {
+            // A star with u is found when the current node in the walk is a neighbor of u
+            // but not a neighbor of v
+            if (cu != v) star_u++;
+            iu++;
+        } else if (cv < cu) {
+            // A star with v is found when the current node in the walk is a neighbor of v
+            // but not a neighbor of u
+            if (cv != u) star_v++;
+            iv++;
         } else {
+            // A triangle is found when the current node in the walk is both a neighbor of
+            // u and a neighbor of v
             tri_e++;
-            count_ptr = &cliq_e;
+            iu++;
+            iv++;
         }
 
-        if (count_ptr != NULL) {
-            for (int i = 0; i < u_len; i++) {
-                if (inds[i] < lens[i] && ptrs[i][inds[i]] == E_v[iv]) {
-                    (*count_ptr)++;
+        if (cv <= cu && cv != u) {
+            for (int arr_i = 0; arr_i < arr_len; arr_i++) {
+                // Before checking for cliques or cycles, the edge index is advanced to the current
+                // location in the walk
+                while (inds[arr_i] < ends[arr_i] && E_v[inds[arr_i]] < cv) {
+                    inds[arr_i]++;
+                }
+
+                // If u's neighbor's neighbor neighbors v, a clique or cycle is found :)
+                if (inds[arr_i] < ends[arr_i] && E_v[inds[arr_i]] == cv) {
+                    if (cv < cu) cyc_e++;
+                    else cliq_e++;
                 }
             }
-        }
-
-        if (iu < V[u + 1] && (iv == V[v + 1] || E_v[iu] < E_v[iv])) {
-            iu++;
-        } else if (iu == V[u + 1] || E_v[iv] < E_v[iu]) {
-            iv++;
-        } else {
-            iu++;
-            iv++;
         }
     }
 
+    // 3-node graphlet and 4-node unrestricted counts calculated as described
+    // in http://nesreenahmed.com/publications/ahmed-et-al-icdm2015.pdf
     outputs[i].g31 = tri_e;
     outputs[i].g32 = star_u + star_v;
     outputs[i].g33 = V_num - (tri_e + star_u + star_v + 2);
@@ -212,6 +221,8 @@ int main(int argc, char *argv[])
     // Value of V[i+1] is index of E_u and E_v where vertex i's edges end
     std::vector<int> V;
 
+    // Value of E[i] is the directed edge index in E_u and E_v associated with
+    // the undirected edge at index i in E
     std::vector<int> E;
 
     // Value of E_u[i] is the source vertex id (as used in V) associated with edge i
@@ -295,7 +306,7 @@ int main(int argc, char *argv[])
     cudaFree(E_v_ptr);
     cudaFree(outputs_ptr);
 
-    // Compute graphlet counts based upon edge outputs
+    // Compute aggregate outputs based upon individual edge outputs
     EDGE_OUTPUT aggregates = {0};
 
     for (int i = 0; i < E_num; i++) {
@@ -317,8 +328,10 @@ int main(int argc, char *argv[])
         aggregates.I_I_1 += outputs[i].I_I_1;
     }
 
+    // 3-nodeand 4-node graphlet counts calculated as described
+    // in http://nesreenahmed.com/publications/ahmed-et-al-icdm2015.pdf
     GRAPHLET_COUNTS counts = {0};
-
+    
     counts.g31 = aggregates.g31 / 3;
     counts.g32 = aggregates.g32 / 2;
     counts.g33 = aggregates.g33;
@@ -330,6 +343,7 @@ int main(int argc, char *argv[])
     counts.g44 = aggregates.g44 / 4;
     counts.g45 = (aggregates.S_S - counts.g43) / 3;
     counts.g46 = aggregates.Su_Sv - 4 * counts.g44;
+
     counts.g47 = (aggregates.T_I - counts.g43) / 3;
     counts.g48 = (aggregates.SuVSv_I - 2 * counts.g46) / 2;
     counts.g49 = (aggregates.I_I_1 - (6 * counts.g41) - (4 * counts.g42) - (2 * counts.g43) - (4 * counts.g44) - (2 * counts.g46)) / 2;
