@@ -73,6 +73,7 @@ void graphlets(int* V, unsigned long long V_num, int* E, unsigned long long E_nu
     int ei = E[i];
 
     // Lookup the endpoints of the current edge
+    // TODO: Dynamically choose u to be the node with smallest neighborhood
     int u = E_u[ei];
     int v = E_v[ei];
 
@@ -139,6 +140,7 @@ void graphlets(int* V, unsigned long long V_num, int* E, unsigned long long E_nu
             iv++;
         }
 
+        // Cycles and cliques can only occur when current node is in N(v) \ {u}
         if (cv <= cu && cv != u) {
             for (int arr_i = 0; arr_i < arr_len; arr_i++) {
                 // Before checking for cliques or cycles, the edge index is advanced to the current
@@ -290,10 +292,12 @@ int main(int argc, char *argv[])
     }
 
     // Create one-dimensional blocks and grids based upon blocksize and gridsize
+    // TODO: Increase dimensionality in order to support larger networks
     dim3 dimBlock(blocksize, 1);
     dim3 dimGrid(gridsize, 1);
 
     // Execute CUDA kernel
+    // TODO: Add timing to kernel execution and count aggregation below
     graphlets<<<dimGrid, dimBlock>>>(V_ptr, V_num, E_ptr, E_num, E_u_ptr, E_v_ptr, outputs_ptr);
 
     // Copy output data from GPU memory back into main memory
@@ -331,7 +335,7 @@ int main(int argc, char *argv[])
     // 3-nodeand 4-node graphlet counts calculated as described
     // in http://nesreenahmed.com/publications/ahmed-et-al-icdm2015.pdf
     GRAPHLET_COUNTS counts = {0};
-    
+
     counts.g31 = aggregates.g31 / 3;
     counts.g32 = aggregates.g32 / 2;
     counts.g33 = aggregates.g33;
