@@ -64,81 +64,79 @@ void graphlets(int* V, unsigned long long V_num, int* E, unsigned long long E_nu
 {
 	// Calculate global thread index in 1D grid of 1D blocks
     // Used as the undirected edge number to compute
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int edge = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Return immediately if thread index is greater than maximum edge index
-    if (i >= E_num) return;
+    if (edge >= E_num) return;
 
     // Using thread number, look up directed edge number in array of undirected edges
-    int ei = E[i];
+    int ei = E[edge];
 
     // Lookup the endpoints of the current edge
     // TODO: Dynamically choose u to be the node with smallest neighborhood
     int u = E_u[ei];
     int v = E_v[ei];
 
-    // To find 4-node graphlets, the neighbors of u check to see if they have
-    // the same neighbors (or not) as v; arr_len is 1 less because v is omitted
+    // Array length is 1 less because v is omitted
     int arr_len = V[u + 1] - V[u] - 1;
     // Array holding current index of edges in E_v of each of u's neighbors
     int* inds = new int[arr_len];
     // Array holding maximum index of edges in E_v of each of u's neighbors
     int* ends = new int[arr_len];
+    // Array indicating whether each of u's neighbors neighbors v
+    bool* neighbors_v = new bool[arr_len];
 
-    // Iterate through u's neighbors and build array of indices in edge list
-    int arr_i = 0, prev_w = -1;
-    for (int edge_i = V[u]; edge_i < V[u + 1]; edge_i++) {
-        // w is the current neighbor of u being considered
-        int w = E_v[edge_i];
-
-        if (w == v) continue;
-
-        inds[arr_i] = V[w];
-        ends[arr_i] = V[w + 1];
-
-        // This is a bit subtle; when searching for cliques and cycles in the original
-        // paper, X(w) is set to 0 after searching a given w's neighbors for cliques
-        // and cycles. This prevents double-counting by stopping w from finding a clique
-        // or cycle in another neighbor r of u, and then r finding the same clique or
-        // cycle with w. By restricting u's neighbors to only considering edges with nodes
-        // greater than the previous neighbor, it recreates this effect and only considers
-        // neighbor-pairs once.
-        while (inds[arr_i] < ends[arr_i] && E_v[inds[arr_i]] <= prev_w) {
-            inds[arr_i]++;
-        }
-
-        arr_i++;
-        prev_w = w;
-    }
-
-    // The primitive counts used to calculate graphlet numbers
-    int tri_e = 0, star_u = 0, star_v = 0, cliq_e = 0, cyc_e = 0;
-    // The current index in E_v of u and v, respectively
-    int iu = V[u], iv = V[v];
     // To count graphlets, nodes are advanced in ascending order concurrently across u, v,
     // and all of u's neighbors. Through this walk, counts can be gathered by checking
     // which nodes have identical neighbors after each step
+    int tri_e = 0, star_u = 0, star_v = 0;
+    int iu = V[u], iv = V[v], arr_i = 0;
     while (iu < V[u + 1] || iv < V[v + 1]) {
         int cu = iu < V[u + 1] ? E_v[iu] : INT_MAX;
         int cv = iv < V[v + 1] ? E_v[iv] : INT_MAX;
 
         if (cu < cv) {
-            // A star with u is found when the current node in the walk is a neighbor of u
-            // but not a neighbor of v
-            if (cu != v) star_u++;
+            if (cu != v) {
+                // A star with u is found when the current node in the walk is a neighbor of u
+                // but not a neighbor of v
+                star_u++;
+                
+                inds[arr_i] = V[cu];
+                ends[arr_i] = V[cu + 1];
+                neighbors_v[arr_i] = false;
+                arr_i++;
+            }
+
             iu++;
         } else if (cv < cu) {
-            // A star with v is found when the current node in the walk is a neighbor of v
-            // but not a neighbor of u
-            if (cv != u) star_v++;
+            if (cv != u) {
+                // A star with v is found when the current node in the walk is a neighbor of v
+                // but not a neighbor of u
+                star_v++;
+            }
+
             iv++;
         } else {
             // A triangle is found when the current node in the walk is both a neighbor of
             // u and a neighbor of v
             tri_e++;
+
+            inds[arr_i] = V[cu];
+            ends[arr_i] = V[cu + 1];
+            neighbors_v[arr_i] = true;
+            arr_i++;
+
             iu++;
             iv++;
         }
+    }
+
+    int cliq_e = 0, cyc_e = 0;
+    iu = V[u];
+    iv = V[v];
+    while (iu < V[u + 1] || iv < V[v + 1]) {
+        int cu = iu < V[u + 1] ? E_v[iu] : INT_MAX;
+        int cv = iv < V[v + 1] ? E_v[iv] : INT_MAX;
 
         // Cycles and cliques can only occur when current node is in N(v) \ {u}
         if (cv <= cu && cv != u) {
@@ -149,32 +147,40 @@ void graphlets(int* V, unsigned long long V_num, int* E, unsigned long long E_nu
                     inds[arr_i]++;
                 }
 
-                // If u's neighbor's neighbor neighbors v, a clique or cycle is found :)
+                // If u's neighbor neighbors v's neighbor, a clique or cycle may be found
                 if (inds[arr_i] < ends[arr_i] && E_v[inds[arr_i]] == cv) {
-                    if (cv < cu) cyc_e++;
-                    else cliq_e++;
+                    if (cu == cv && neighbors_v[arr_i]) {
+                        // If u's neighbor and v's neighbor form triangles with e, a clique is found
+                        cliq_e++;
+                    } else if (cu != cv && !neighbors_v[arr_i]) {
+                        // If neither u's neighbor or v's neighbor form triangles with e, a cycle is found
+                        cyc_e++;
+                    }
                 }
             }
         }
+
+        if (cu <= cv) iu++;
+        if (cv <= cu) iv++;
     }
 
     // 3-node graphlet and 4-node unrestricted counts calculated as described
     // in http://nesreenahmed.com/publications/ahmed-et-al-icdm2015.pdf
-    outputs[i].g31 = tri_e;
-    outputs[i].g32 = star_u + star_v;
-    outputs[i].g33 = V_num - (tri_e + star_u + star_v + 2);
-    outputs[i].g41 = cliq_e;
-    outputs[i].g44 = cyc_e;
+    outputs[edge].g31 = tri_e;
+    outputs[edge].g32 = star_u + star_v;
+    outputs[edge].g33 = V_num - (tri_e + star_u + star_v + 2);
+    outputs[edge].g41 = cliq_e / 2;
+    outputs[edge].g44 = cyc_e;
 
-    outputs[i].T_T = (tri_e * (tri_e - 1)) / 2;
-    outputs[i].Su_Sv = star_u * star_v;
-    outputs[i].T_SuVSv = tri_e * (star_u + star_v);
-    outputs[i].S_S = ((star_u * (star_u - 1)) / 2) + ((star_v * (star_v - 1)) / 2);
+    outputs[edge].T_T = (tri_e * (tri_e - 1)) / 2;
+    outputs[edge].Su_Sv = star_u * star_v;
+    outputs[edge].T_SuVSv = tri_e * (star_u + star_v);
+    outputs[edge].S_S = ((star_u * (star_u - 1)) / 2) + ((star_v * (star_v - 1)) / 2);
 
-    outputs[i].T_I = tri_e * outputs[i].g33;
-    outputs[i].SuVSv_I = (star_u + star_v) * outputs[i].g33;
-    outputs[i].I_I = (outputs[i].g33 * (outputs[i].g33 - 1)) / 2;
-    outputs[i].I_I_1 = E_num - (V[u + 1] - V[u] - 1) - (V[v + 1] - V[v] - 1) - 1;
+    outputs[edge].T_I = tri_e * outputs[edge].g33;
+    outputs[edge].SuVSv_I = (star_u + star_v) * outputs[edge].g33;
+    outputs[edge].I_I = (outputs[edge].g33 * (outputs[edge].g33 - 1)) / 2;
+    outputs[edge].I_I_1 = E_num - (V[u + 1] - V[u] - 1) - (V[v + 1] - V[v] - 1) - 1;
 }
 
 int main(int argc, char *argv[])
