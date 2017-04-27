@@ -26,7 +26,7 @@ struct EDGE_OUTPUT {
     unsigned long long Su_Sv;
     unsigned long long T_SuVSv;
     unsigned long long S_S;
-    
+
     // Unrestricted counts for 4-node disconnected graphlets
     unsigned long long T_I;
     unsigned long long SuVSv_I;
@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
 
     // Nested vector used to store read file into adjacency list
     std::vector< std::vector<int> > adj_list;
-    
+
     // Input network file provided by user
     // File format assume to be edge list
     std::ifstream infile(argv[1]);
@@ -201,8 +201,8 @@ int main(int argc, char *argv[])
 	int u, v, edge_count = 0, max = -1;
 	while (getline(infile, su, '\t') && getline(infile, sv)) {
         // Node ids assumed to be 1-indexed and decremented to be 0-indexed
-        u = std::stoi(su) - 1;
-        v = std::stoi(sv) - 1;
+        u = std::atoi(su.c_str()) - 1;
+        v = std::atoi(sv.c_str()) - 1;
 
         // Dynamically add empty vectors as nodes are found in edge list
         int new_max = u > v ? u : v;
@@ -264,7 +264,7 @@ int main(int argc, char *argv[])
 
     // Create and initialize CUDA thread output structs
     std::vector<EDGE_OUTPUT> outputs(E_num);
-    outputs.resize(E_num, {0});
+    outputs.resize(E_num);
 
     // Pointers of V, E_u, E_v, and edge outputs in GPU memory
     int* V_ptr;
@@ -276,7 +276,7 @@ int main(int argc, char *argv[])
     int V_size = (V_num + 1) * sizeof(int);
     int E_size = E_num * sizeof(int);
     int outputs_size = E_num * sizeof(EDGE_OUTPUT);
-    
+
     // Malloc GPU memory and store location in pointers
     cudaMalloc((void**)&V_ptr, V_size);
     cudaMalloc((void**)&E_ptr, E_size);
