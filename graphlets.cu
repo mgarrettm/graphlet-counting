@@ -4,11 +4,6 @@
 #include <string>
 #include <vector>
 
-// Number of threads in each block
-// Should be a multiple of GPU warp size (32 in recent architectures)
-// TODO: Tune this parameter based upon empirical performance
-const int blocksize = 128;
-
 // Struct containing edge outputs computed in parallel
 // One produced per thread, aggregated after GPU computation
 struct EDGE_OUTPUT {
@@ -185,10 +180,14 @@ void graphlets(int* V, unsigned long long V_num, int* E, unsigned long long E_nu
 
 int main(int argc, char *argv[])
 {
-    if (argc != 2) {
-        std::cout << "usage: " << argv[0] << " <input_file>" << std::endl;
+    if (argc != 3) {
+        std::cout << "usage: " << argv[0] << " <input_file> <block_size>" << std::endl;
         return EXIT_FAILURE;
     }
+
+    // Number of threads in each block
+    // Should be a multiple of GPU warp size (32 in recent architectures)
+    int blocksize = atoi(argv[2]);
 
     // Nested vector used to store read file into adjacency list
     std::vector< std::vector<int> > adj_list;
