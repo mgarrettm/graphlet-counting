@@ -31,6 +31,7 @@ for junk in range(headerFlag):
 
 #need to do a check
 nodeNum = int(input.readline())
+output.write(str(nodeNum)+"\n")
 #starts with 1 to N
 for nodes in range(nodeNum):
     output.write("|{"+str(nodes+1)+"}|\n")
