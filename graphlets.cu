@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <chrono>
 
 // Struct containing edge outputs computed in parallel
 // One produced per thread, aggregated after GPU computation
@@ -276,6 +277,8 @@ int main(int argc, char *argv[])
     int E_size = E_num * sizeof(int);
     int outputs_size = E_num * sizeof(EDGE_OUTPUT);
 
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+
     // Malloc GPU memory and store location in pointers
     cudaMalloc((void**)&V_ptr, V_size);
     cudaMalloc((void**)&E_ptr, E_size);
@@ -283,12 +286,16 @@ int main(int argc, char *argv[])
     cudaMalloc((void**)&E_v_ptr, E_size * 2);
     cudaMalloc((void**)&outputs_ptr, outputs_size);
 
+    std::chrono::steady_clock::time_point malloc_end = std::chrono::steady_clock::now();
+
     // Copy data structures from main memory to allocated GPU memory
     cudaMemcpy(V_ptr, V.data(), V_size, cudaMemcpyHostToDevice);
     cudaMemcpy(E_ptr, E.data(), E_size, cudaMemcpyHostToDevice);
     cudaMemcpy(E_u_ptr, E_u.data(), E_size * 2, cudaMemcpyHostToDevice);
     cudaMemcpy(E_v_ptr, E_v.data(), E_size * 2, cudaMemcpyHostToDevice);
     cudaMemcpy(outputs_ptr, outputs.data(), outputs_size, cudaMemcpyHostToDevice);
+
+    std::chrono::steady_clock::time_point memcpy_input_end = std::chrono::steady_clock::now();
 
     // Calculate number of blocks in CUDA grid based upon number of edges in graph
     int gridsize = E_num / blocksize;
@@ -301,12 +308,18 @@ int main(int argc, char *argv[])
     dim3 dimBlock(blocksize, 1);
     dim3 dimGrid(gridsize, 1);
 
+    std::chrono::steady_clock::time_point kernel_begin = std::chrono::steady_clock::now();
+
     // Execute CUDA kernel
     // TODO: Add timing to kernel execution and count aggregation below
     graphlets<<<dimGrid, dimBlock>>>(V_ptr, V_num, E_ptr, E_num, E_u_ptr, E_v_ptr, outputs_ptr);
 
+    std::chrono::steady_clock::time_point kernel_end = std::chrono::steady_clock::now();
+
     // Copy output data from GPU memory back into main memory
     cudaMemcpy(outputs.data(), outputs_ptr, outputs_size, cudaMemcpyDeviceToHost);
+
+    std::chrono::steady_clock::time_point memcpy_output_end = std::chrono::steady_clock::now();
 
     // Free memory in GPU
     cudaFree(V_ptr);
@@ -314,6 +327,8 @@ int main(int argc, char *argv[])
     cudaFree(E_u_ptr);
     cudaFree(E_v_ptr);
     cudaFree(outputs_ptr);
+
+    std::chrono::steady_clock::time_point free_end = std::chrono::steady_clock::now();
 
     // Compute aggregate outputs based upon individual edge outputs
     EDGE_OUTPUT aggregates = {0};
@@ -359,6 +374,8 @@ int main(int argc, char *argv[])
     counts.g410 = aggregates.I_I - 2 * counts.g49;
     counts.g411 = ((V_num * (V_num - 1) * (V_num - 2) * (V_num - 3)) / (4 * 3 * 2)) - counts.g41 - counts.g42 - counts.g43 - counts.g44 - counts.g45 - counts.g46 - counts.g47 - counts.g48 - counts.g49 - counts.g410;
 
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
     std::cout << std::endl;
     std::cout << "      Graphlet Counts" << std::endl;
     std::cout << "===========================" << std::endl;
@@ -386,6 +403,17 @@ int main(int argc, char *argv[])
     std::cout << "2-star             (g32)  : " << counts.g32 << std::endl;
     std::cout << "3-node-1-edge      (g33)  : " << counts.g33 << std::endl;
     std::cout << "3-node-independent (g34)  : " << counts.g34 << std::endl;
+
+    std::cout << std::endl;
+    std::cout << "    Timing (us)" << std::endl;
+    std::cout << "====================" << std::endl;
+    std::cout << "total elapsed      : " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << std::endl;
+    std::cout << "cudaMalloc         : " << std::chrono::duration_cast<std::chrono::microseconds>(malloc_end - begin).count() << std::endl;
+    std::cout << "cudaMemcpy (input) : " << std::chrono::duration_cast<std::chrono::microseconds>(memcpy_input_end - malloc_end).count() << std::endl;
+    std::cout << "kernel (graphlets) : " << std::chrono::duration_cast<std::chrono::microseconds>(kernel_end - kernel_begin).count() << std::endl;
+    std::cout << "cudaMemcpy (output): " << std::chrono::duration_cast<std::chrono::microseconds>(memcpy_output_end - kernel_end).count() << std::endl;
+    std::cout << "cudaFree           : " << std::chrono::duration_cast<std::chrono::microseconds>(free_end - memcpy_output_end).count() << std::endl;
+    std::cout << "aggregate          : " << std::chrono::duration_cast<std::chrono::microseconds>(end - memcpy_output_end).count() << std::endl;
 
     return EXIT_SUCCESS;
 }
