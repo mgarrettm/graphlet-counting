@@ -29,10 +29,10 @@ triangle           (g31)  : 1573
 
     Timing (us)
 ====================
-total elapsed      : 746386
-cudaMalloc         : 288902
-cudaMemcpy (input) : 7337
-kernel (graphlets) : 436371
-cudaMemcpy (output): 2982
-cudaFree           : 598
-aggregate          : 10789
+total elapsed      : 1596999
+cudaMalloc         : 1171081
+cudaMemcpy (input) : 7005
+kernel (graphlets) : 408396
+cudaMemcpy (output): 2423
+cudaFree           : 420
+aggregate          : 8090
