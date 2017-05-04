@@ -336,7 +336,7 @@ int main(int argc, char *argv[])
 	dim3 dimBlock(blocksize, 1);
 	dim3 dimGrid(gridsize, 1);
 
-	int heap_size = (2 * sizeof(int) + sizeof(bool)) * max_degree * E_num * 2;
+	int heap_size = (2 * sizeof(int) + sizeof(bool)) * max_degree * E_num * 4;
 	gpuErrchk(cudaDeviceSetLimit(cudaLimitMallocHeapSize, heap_size));
 
 	std::chrono::steady_clock::time_point kernel_begin = std::chrono::steady_clock::now();
