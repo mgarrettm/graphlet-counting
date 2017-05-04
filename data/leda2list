@@ -1,0 +1,28 @@
+#!/usr/bin/awk -f
+# Usage: leda2list <leda file>
+# Takes a LEDA graph file and outputs a list of edges
+# A triangle in list format looks like:
+# a	b
+# a	c
+# b	c
+
+# ensure that a node name is unique
+function unique_name(name)
+{
+  while(name in allnames)
+  {
+    name = "_" name; # Prefix an underscore. Simple, but works. Maybe.
+  }
+  return name;
+}
+
+BEGIN { num = 0; }
+# record node names
+/^\|{.*}\|$/ { num++; name = substr($1, 3, length($1) - 4);
+             name = (length(name) > 0) ? name : num;
+             names[num] = unique_name(name);
+             allnames[name] = 0;
+           }
+
+# edges
+/^[0-9]+ [0-9]+/ { print names[$1] "\t" names[$2]; }
