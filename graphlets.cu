@@ -73,7 +73,7 @@ void graphlets(int* V, unsigned long long V_num, int* E, unsigned long long E_nu
 {
 	// Calculate global thread index in 1D grid of 1D blocks
 	// Used as the undirected edge number to compute
-	int edge = blockIdx.x * blockDim.x + threadIdx.x;
+	int edge = (blockIdx.y * gridDim.x + blockIdx.x) * blockDim.x + threadIdx.x;
 
 	// Return immediately if thread index is greater than maximum edge index
 	if (edge >= E_num) return;
@@ -313,6 +313,7 @@ int main(int argc, char *argv[])
 	gpuErrchk(cudaMalloc((void**)&E_u_ptr, E_size * 2));
 	gpuErrchk(cudaMalloc((void**)&E_v_ptr, E_size * 2));
 	gpuErrchk(cudaMalloc((void**)&outputs_ptr, outputs_size));
+	cudaDeviceSynchronize();
 
 	std::chrono::steady_clock::time_point malloc_end = std::chrono::steady_clock::now();
 
@@ -322,22 +323,33 @@ int main(int argc, char *argv[])
 	gpuErrchk(cudaMemcpy(E_u_ptr, E_u.data(), E_size * 2, cudaMemcpyHostToDevice));
 	gpuErrchk(cudaMemcpy(E_v_ptr, E_v.data(), E_size * 2, cudaMemcpyHostToDevice));
 	gpuErrchk(cudaMemcpy(outputs_ptr, outputs.data(), outputs_size, cudaMemcpyHostToDevice));
+	cudaDeviceSynchronize();
 
 	std::chrono::steady_clock::time_point memcpy_input_end = std::chrono::steady_clock::now();
 
 	// Calculate number of blocks in CUDA grid based upon number of edges in graph
 	int gridsize = E_num / blocksize;
+	int gridlength = 1;
 	if (E_num % blocksize > 0) {
 		gridsize++;
+		if (gridsize > 65535) {
+			gridsize -= 65535;
+			gridlength++;
+		}
+	}
+
+	if (gridlength > 1) {
+		gridsize = 65535;
 	}
 
 	// Create one-dimensional blocks and grids based upon blocksize and gridsize
 	// TODO: Increase dimensionality in order to support larger networks
 	dim3 dimBlock(blocksize, 1);
-	dim3 dimGrid(gridsize, 1);
+	dim3 dimGrid(gridsize, gridlength);
 
 	int heap_size = (2 * sizeof(int) + sizeof(bool)) * max_degree * E_num;
 	gpuErrchk(cudaDeviceSetLimit(cudaLimitMallocHeapSize, heap_size));
+	cudaDeviceSynchronize();
 
 	std::chrono::steady_clock::time_point kernel_begin = std::chrono::steady_clock::now();
 
@@ -345,11 +357,13 @@ int main(int argc, char *argv[])
 	// TODO: Add timing to kernel execution and count aggregation below
 	graphlets<<<dimGrid, dimBlock>>>(V_ptr, V_num, E_ptr, E_num, E_u_ptr, E_v_ptr, outputs_ptr);
 	gpuErrchk(cudaGetLastError());
+	cudaDeviceSynchronize();
 
 	std::chrono::steady_clock::time_point kernel_end = std::chrono::steady_clock::now();
 
 	// Copy output data from GPU memory back into main memory
 	gpuErrchk(cudaMemcpy(outputs.data(), outputs_ptr, outputs_size, cudaMemcpyDeviceToHost));
+	cudaDeviceSynchronize();
 
 	std::chrono::steady_clock::time_point memcpy_output_end = std::chrono::steady_clock::now();
 
@@ -359,6 +373,7 @@ int main(int argc, char *argv[])
 	gpuErrchk(cudaFree(E_u_ptr));
 	gpuErrchk(cudaFree(E_v_ptr));
 	gpuErrchk(cudaFree(outputs_ptr));
+	cudaDeviceSynchronize();
 
 	std::chrono::steady_clock::time_point free_end = std::chrono::steady_clock::now();
 
