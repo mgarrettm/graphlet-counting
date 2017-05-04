@@ -1,0 +1,38 @@
+Graph found with 20440 nodes and 218446 edges
+
+      Graphlet Counts
+===========================
+
+k=4 Connected Graphlets
+---------------------------
+4-clique           (g41)  : 1454620
+4-chordalcycle     (g42)  : 4187688
+4-tailedtriangle   (g43)  : 16258346
+4-cycle            (g44)  : 264687
+3-star             (g45)  : 4896897
+4-path             (g46)  : 29331496
+
+k=4 Disconnected Graphlets
+---------------------------
+4-node-1-triangle  (g47)  : 15571541901
+4-node-2-star      (g48)  : 50746890948
+4-node-2-edge      (g49)  : 23795580795
+4-node-1-edge      (g410) : 45425510424878
+4-node-independent (g411) : 18446698557943741885
+
+k=3 Graphlets
+---------------------------
+triangle           (g31)  : 763419
+2-star             (g32)  : 2488731
+3-node-1-edge      (g33)  : 4457331629
+3-node-independent (g34)  : 18446744069257777775
+
+    Timing (us)
+====================
+total elapsed      : 81383280
+cudaMalloc         : 438468
+cudaMemcpy (input) : 8392
+kernel (graphlets) : 80925636
+cudaMemcpy (output): 2496
+cudaFree           : 551
+aggregate          : 8282

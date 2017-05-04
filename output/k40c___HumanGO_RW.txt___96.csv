@@ -1,0 +1,2 @@
+==15799== NVPROF is profiling process 15799, command: ./graphlets ./networks/HumanGO_RW.txt 96
+==15799== Some kernel(s) will be replayed on device 0 in order to collect all events/metrics.
