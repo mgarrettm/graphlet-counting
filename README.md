@@ -27,10 +27,10 @@ Then, load the cuda compiler (Default is version 7.5)
 
 Locate your code in your AFS space. Compile with the follow command.
 ```bash
-[snjoroge@qa-titanx-001 graphlet-counting]$ nvcc -o graphlets graphlets.cu
+[snjoroge@qa-titanx-001 graphlet-counting]$ nvcc -std=c++11 -o graphlests graphlets.cu
 ```
 
 Run the program with a graph
 ```bash
-[snjoroge@qa-titanx-001 graphlet-counting]$ ./graphlets data/network.txt
+[snjoroge@qa-titanx-001 graphlet-counting]$ ./graphlets data/network.txt 256
 ```
